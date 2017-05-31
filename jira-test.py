@@ -6,6 +6,8 @@
 
 from collections import Counter
 from jira import JIRA
+import re, subprocess
+import commands
 
 # By default, the client will connect to a JIRA instance started from the Atlassian Plugin SDK.
 # See
@@ -28,6 +30,13 @@ def get_last_ver(releases):
     last_ver = max([int(x.name.split(" v")[1]) for x in releases if "Release v" in x.name])
     return last_ver
 
+def get_commit_number(line):
+    issue_name = re.search("JIR-\d+", line).group(0)
+    if issue_name:
+        return issue_name.split("-")[1]
+    else:
+        return ''
+
 def ver_to_dict(versions):
     new_list = []
     for i in versions:
@@ -47,18 +56,26 @@ for i in projects:
         print ver.id
         print ver.name
         # print ver.released
+
+    # GETTING NEW COMMITS INFO
+    # git_log = subprocess.check_output(['/usr/bin/git log master...dev --pretty=short | /usr/bin/grep JIR'])
+    git_log = commands.getstatusoutput("/usr/bin/git log master...dev --pretty=short | /usr/bin/grep JIR")
+    print git_log
+
+    # CREATING NEW VERSION
     # jira.create_version(project=i.key,
     #                     name="Release v%d" % new_ver,
     #                     description="ololo")
     # issues = jira.issues()
     # for iss in issues:
     #     print iss
-    print jira.issue('JIR-1').fields.versions
 
+    # ADDING VERSION TO THE ISSUE
+    print jira.issue('JIR-1').fields.versions
     new_versions = jira.issue('JIR-1').fields.versions
     new_versions.append(jira.version(id=10000))
     print new_versions
-    jira.issue('JIR-1').update(fields={'versions': ver_to_dict(new_versions)})
+    # jira.issue('JIR-1').update(fields={'versions': ver_to_dict(new_versions)})
 
         # Parameters: 
         # name – name of the version to create
