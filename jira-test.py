@@ -9,31 +9,22 @@ from jira import JIRA
 import re, subprocess
 import commands
 
-# By default, the client will connect to a JIRA instance started from the Atlassian Plugin SDK.
-# See
-# https://developer.atlassian.com/display/DOCS/Installing+the+Atlassian+Plugin+SDK
-# for details.
 jira = JIRA('https://itsumma.atlassian.net/', basic_auth=('admin', 'feefeizoh1gaeF'))    # a username/password tuple
-
-# # Get the mutable application properties for this server (requires
-# # jira-system-administrators permission)
-# props = jira.application_properties()
-
-# # Find all issues reported by the admin
-# issues = jira.search_issues('assignee=admin')
-
-# # Find the top three projects containing issues reported by admin
-# top_three = Counter(
-#     [issue.fields.project.key for issue in issues]).most_common(3)
 
 def get_last_ver(releases):
     last_ver = max([int(x.name.split(" v")[1]) for x in releases if "Release v" in x.name])
     return last_ver
 
-def get_commit_number(line):
+def get_version_object_by_num(project, number):
+    project_versions = jira.project_versions(project)
+    for ver in project_versions:
+        if ver.name.endswith(" v%d" % number):
+            return ver
+
+def get_commit_issue_number(line):
     issue_name = re.search("JIR-\d+", line).group(0)
     if issue_name:
-        return issue_name.split("-")[1]
+        return issue_name
     else:
         return ''
 
@@ -46,40 +37,68 @@ def ver_to_dict(versions):
 
 
 projects = jira.projects()
-for i in projects:
-    print "PROJECT NAME:", i.name
-    versions = jira.project_versions(i)
-    last_ver = get_last_ver(versions)
+
+jira_project_tag = "JIR"
+
+project = jira.project(jira_project_tag)
+
+# GETTING PROJECT INFO
+print "PROJECT NAME:", project.name
+# print project
+# versions = jira.project_versions(project)
+# last_ver = get_last_ver(versions)
+# new_ver = last_ver + 1
+# print "PROJECT VERSIONS:"
+# for ver in versions:
+#     print ver.id
+#     print ver.name
+    # print ver.released
+
+# GETTING NEW COMMITS INFO
+issues_to_update = []
+git_log = commands.getstatusoutput(
+        "/usr/bin/git log master...dev --pretty=short | /usr/bin/grep %s" % jira_project_tag
+    )[1]
+for i in git_log.split("\n"):
+    issue_number = get_commit_issue_number(i)
+    if not issue_number in issues_to_update:
+        issues_to_update.append(issue_number)
+print issues_to_update
+
+# CHECKING UNREALISED VERSIONS OR CREATING NEW ONE
+unreleased_versions = []
+for ver in jira.project_versions(project):
+    if not ver.released:
+        unreleased_versions.append(ver)
+if unreleased_versions:
+    last_num = get_last_ver(unreleased_versions)
+    version_to_release = get_version_object_by_num(project, last_num)
+else:
+    last_ver = get_last_ver(jira.project_versions(project))
     new_ver = last_ver + 1
-    print "PROJECT VERSIONS:"
-    for ver in versions:
-        print ver.id
-        print ver.name
-        # print ver.released
+    version_to_release = jira.create_version(project=project.key,
+                    name="Release v%d" % new_ver,
+                    description="ololo")
+print version_to_release
 
-    # GETTING NEW COMMITS INFO
-    # git_log = subprocess.check_output(['/usr/bin/git log master...dev --pretty=short | /usr/bin/grep JIR'])
-    git_log = commands.getstatusoutput("/usr/bin/git log master...dev --pretty=short | /usr/bin/grep JIR")
-    print git_log
+# issues = jira.issues()
+# for iss in issues:
+#     print iss
 
-    # CREATING NEW VERSION
-    # jira.create_version(project=i.key,
-    #                     name="Release v%d" % new_ver,
-    #                     description="ololo")
-    # issues = jira.issues()
-    # for iss in issues:
-    #     print iss
+# ADDING VERSION TO THE ISSUE
+for iss in issues_to_update:
+    version = []
+    version.append(version_to_release)
+    jira.issue(iss).update(fields={'versions': ver_to_dict(version)})
+# print jira.issue('JIR-1').fields.versions
+# new_versions = jira.issue('JIR-1').fields.versions
+# new_versions.append(version_to_release)
+# print new_versions
+# jira.issue('JIR-1').update(fields={'versions': ver_to_dict(new_versions)})
 
-    # ADDING VERSION TO THE ISSUE
-    print jira.issue('JIR-1').fields.versions
-    new_versions = jira.issue('JIR-1').fields.versions
-    new_versions.append(jira.version(id=10000))
-    print new_versions
-    # jira.issue('JIR-1').update(fields={'versions': ver_to_dict(new_versions)})
-
-        # Parameters: 
-        # name – name of the version to create
-        # project – key of the project to create the version in
-        # description – a description of the version
-        # releaseDate – the release date assigned to the version
-        # startDate – The start date for the version
+    # Parameters: 
+    # name – name of the version to create
+    # project – key of the project to create the version in
+    # description – a description of the version
+    # releaseDate – the release date assigned to the version
+    # startDate – The start date for the version
